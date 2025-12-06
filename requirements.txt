@@ -1,0 +1,8 @@
+boto3
+botocore
+boto3-stubs[essential]
+boto3-stubs[lambda]
+boto3-stubs[bedrock]
+black
+ruff
+mypy
