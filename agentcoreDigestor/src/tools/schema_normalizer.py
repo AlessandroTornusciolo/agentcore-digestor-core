@@ -1,158 +1,145 @@
-from strands import tool
 import pandas as pd
+import numpy as np
+from datetime import datetime
+from strands import tool
 import boto3
 import io
-from datetime import datetime
 
 s3 = boto3.client("s3")
 
 
-def _read_file(file_s3_path: str) -> pd.DataFrame:
-    """Internal helper: loads CSV or Parquet depending on extension."""
-    bucket, key = file_s3_path.replace("s3://", "").split("/", 1)
-    obj = s3.get_object(Bucket=bucket, Key=key)
-    body = obj["Body"].read()
-
-    if key.endswith(".csv"):
-        return pd.read_csv(io.BytesIO(body))
-    elif key.endswith(".parquet"):
-        return pd.read_parquet(io.BytesIO(body))
-    else:
-        raise ValueError(f"Unsupported file type: {key}")
-
-
-def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize col names: lowercase, strip spaces, replace non-std chars."""
-    df = df.rename(columns={
-        col: col.strip().lower().replace(" ", "_")
-        for col in df.columns
-    })
-    return df
-
-
-def _safe_to_float(val):
+# ----------------------------------------------------
+# Helper: test conversion of a single value
+# ----------------------------------------------------
+def try_convert(value, dtype):
     try:
-        return float(val)
+        if dtype == "int":
+            return int(value)
+        elif dtype == "float":
+            return float(value)
+        elif dtype == "datetime":
+            return pd.to_datetime(value)
+        return value
     except:
         return None
 
 
-def _safe_to_int(val):
-    try:
-        return int(val)
-    except:
-        return None
+# ----------------------------------------------------
+# Infer best type using >50% majority rule
+# ----------------------------------------------------
+def infer_column_type(series: pd.Series):
+    total = len(series)
+    if total == 0:
+        return "string"
+
+    counts = {"int": 0, "float": 0, "datetime": 0}
+
+    for v in series:
+        # skip None / NaN
+        if v is None or pd.isna(v):
+            continue
+
+        if try_convert(v, "int") is not None:
+            counts["int"] += 1
+        if try_convert(v, "float") is not None:
+            counts["float"] += 1
+        if try_convert(v, "datetime") is not None:
+            counts["datetime"] += 1
+
+    best_type = max(counts, key=lambda t: counts[t])
+
+    if counts[best_type] >= total * 0.5:
+        return best_type
+
+    return "string"
 
 
-def _safe_to_date(val):
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d"):
-        try:
-            return datetime.strptime(str(val), fmt).date()
-        except:
-            pass
-    return None
+# ----------------------------------------------------
+# Apply conversion according to inferred type
+# ----------------------------------------------------
+def convert_column(series: pd.Series, dtype: str, mode: str):
+    new_values = []
+    removed_rows = 0
+
+    for v in series:
+        if v is None or pd.isna(v):
+            new_values.append(None)
+            continue
+
+        converted = try_convert(v, dtype)
+        if converted is None:
+            if mode == "drop_invalid":
+                new_values.append("ROW_REMOVED")
+                removed_rows += 1
+            else:
+                new_values.append(None)
+        else:
+            new_values.append(converted)
+
+    return new_values, removed_rows
 
 
+# ----------------------------------------------------
+# Main Tool: schema_normalizer
+# ----------------------------------------------------
 @tool
-def schema_normalizer(
-    file_s3_path: str,
-    mode: str = "keep_nulls"
-) -> dict:
+def schema_normalizer(file_s3_path: str, schema: dict, mode: str = "drop_invalid"):
     """
-    Normalizes schema and values.
-
-    Parameters
-    ----------
-    file_s3_path : str
-        S3 path to CSV/Parquet
-    mode : str
-        "keep_nulls" -> invalid values converted to None
-        "drop_invalid" -> rows with invalid data are removed
-
-    Returns
-    -------
-    dict:
-        {
-            status: "success",
-            schema: [...],
-            normalization_actions: [...],
-            warnings: [...],
-            cleaned_row_count: int,
-            original_row_count: int,
-            recommendation: "ready_for_load" | "check_issues"
-        }
+    Normalizza i dati secondo majority inference (>50%) e converte i valori.
+    mode = drop_invalid | keep_nulls
     """
-    df = _read_file(file_s3_path)
-    original_count = len(df)
 
-    actions = []
-    warnings = []
+    # --------------------------------------------------------
+    # Scarica file da S3
+    # --------------------------------------------------------
+    bucket = file_s3_path.replace("s3://", "").split("/")[0]
+    key = "/".join(file_s3_path.replace("s3://", "").split("/")[1:])
 
-    # ----------------------------------------------
-    # 1. Normalize column names
-    # ----------------------------------------------
-    df = _normalize_column_names(df)
-    actions.append("Normalized column names (lowercase, underscores).")
+    obj = s3.get_object(Bucket=bucket, Key=key)
+    df = pd.read_csv(io.BytesIO(obj["Body"].read()))
 
-    # ----------------------------------------------
-    # 2. Detect and convert datatypes
-    # ----------------------------------------------
-    df_clean = df.copy()
-    invalid_rows = set()
+    original_rows = len(df)
+    total_removed = 0
 
-    for col in df_clean.columns:
-        series = df_clean[col]
+    normalized_df = pd.DataFrame()
 
-        # Try numeric
-        if series.dtype == object:
-            # heuristic: check % of numeric-looking values
-            numeric_ratio = series.apply(
-                lambda x: str(x).replace(".", "", 1).isdigit()
-            ).mean()
+    final_schema = {}
 
-            if numeric_ratio > 0.6:
-                # try convert to float
-                df_clean[col] = series.apply(_safe_to_float)
-                actions.append(f"Converted column '{col}' to float.")
-                # mark invalid
-                bad_idx = df_clean[df_clean[col].isnull()].index
-                invalid_rows.update(bad_idx)
+    # --------------------------------------------------------
+    # Applica inferenza tipo e conversione per ogni colonna
+    # --------------------------------------------------------
+    for col in df.columns:
+        series = df[col].replace({np.nan: None})
+        series = series.replace("nan", None)
 
-        # Try date
-        if series.dtype == object and "date" in col:
-            df_clean[col] = series.apply(_safe_to_date)
-            actions.append(f"Parsed column '{col}' as date.")
-            bad_idx = df_clean[df_clean[col].isnull()].index
-            invalid_rows.update(bad_idx)
+        inferred_type = infer_column_type(series)
+        final_schema[col] = inferred_type
 
-    # ----------------------------------------------
-    # 3. Apply mode
-    # ----------------------------------------------
-    invalid_rows = list(invalid_rows)
-    removed_count = 0
+        converted_values, removed = convert_column(series, inferred_type, mode)
+        total_removed += removed
 
-    if mode == "drop_invalid" and invalid_rows:
-        df_clean = df_clean.drop(index=invalid_rows)
-        removed_count = len(invalid_rows)
-        warnings.append({"dropped_rows": removed_count})
-        actions.append(f"Removed {removed_count} invalid rows.")
-    elif mode == "keep_nulls" and invalid_rows:
-        warnings.append({"nullified_rows": len(invalid_rows)})
-        actions.append("Replaced invalid values with nulls (kept rows).")
+        normalized_df[col] = converted_values
 
-    cleaned_count = len(df_clean)
+    # Rimuovi le righe marcate come ROW_REMOVED
+    if mode == "drop_invalid":
+        normalized_df = normalized_df[~normalized_df.eq("ROW_REMOVED").any(axis=1)]
 
-    # ----------------------------------------------
-    # 4. Build schema description
-    # ----------------------------------------------
-    schema = [{"name": c, "type": str(df_clean[c].dtype)} for c in df_clean.columns]
+    cleaned_rows = len(normalized_df)
 
-    return {
+    # --------------------------------------------------------
+    # Prepara risposta
+    # --------------------------------------------------------
+    preview = normalized_df.fillna("None").astype(str).head(5).to_dict(orient="records")
+
+    result = {
         "status": "success",
-        "schema": schema,
-        "normalization_actions": actions,
-        "warnings": warnings,
-        "original_row_count": original_count,
-        "cleaned_row_count": cleaned_count,
-        "recommendation": "ready_for_load" if not warnings else "review_warnings",
+        "mode": mode,
+        "schema_normalized": final_schema,
+        "rows_original": original_rows,
+        "rows_cleaned": cleaned_rows,
+        "rows_removed": original_rows - cleaned_rows,
+        "ready_for_load": True,
+        "sample_preview": preview
     }
+
+    return result
