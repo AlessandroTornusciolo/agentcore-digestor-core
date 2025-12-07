@@ -13,7 +13,7 @@ def handler(event, context):
     try:
         file_s3_path = event["file_s3_path"]
         table_name   = event["table_name"]
-        schema       = event.get("schema")  # ← NEW
+        schema       = event.get("schema")  # MUST BE PROVIDED BY AGENT
 
         if schema is None:
             return {
@@ -22,17 +22,22 @@ def handler(event, context):
             }
 
         env = os.environ.get("ENV", "dev")
-        output_bucket = f"agentcore-digestor-tables-{env}"
 
-        # --------------------------------------------------------------
-        # 1. Parse S3 path
-        # --------------------------------------------------------------
+        # --------------------------------------------------------------------
+        # NEW: Iceberg Warehouse Bucket (Bronze)
+        # --------------------------------------------------------------------
+        warehouse_bucket = f"agentcore-digestor-iceberg-bronze-{env}"
+        write_path = f"s3://{warehouse_bucket}/warehouse/{table_name}/data/"
+
+        # --------------------------------------------------------------------
+        # 1. Parse S3 path of the ORIGINAL file
+        # --------------------------------------------------------------------
         bucket = file_s3_path.replace("s3://", "").split("/")[0]
         key    = "/".join(file_s3_path.replace("s3://", "").split("/")[1:])
 
-        # --------------------------------------------------------------
+        # --------------------------------------------------------------------
         # 2. Read CSV into DataFrame
-        # --------------------------------------------------------------
+        # --------------------------------------------------------------------
         obj = s3.get_object(Bucket=bucket, Key=key)
         raw_data = obj["Body"].read().decode("utf-8")
 
@@ -43,17 +48,16 @@ def handler(event, context):
 
         df = pd.DataFrame(rows)
 
-        # --------------------------------------------------------------
-        # 3. Apply type conversions based on agent-normalized schema
-        # --------------------------------------------------------------
+        # --------------------------------------------------------------------
+        # 3. Apply AGENT-NORMALIZED schema conversions
+        # --------------------------------------------------------------------
         for colinfo in schema:
             col = colinfo["name"]
             coltype = colinfo["type"]
 
             if col not in df.columns:
-                continue  # skip missing columns
+                continue
 
-            # Convert based on type
             if coltype == "int":
                 df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
 
@@ -66,15 +70,12 @@ def handler(event, context):
             elif coltype == "string":
                 df[col] = df[col].astype(str)
 
-            # Unknown type → cast to string
             else:
                 df[col] = df[col].astype(str)
 
-        # --------------------------------------------------------------
-        # 4. Write fully converted DataFrame to Parquet
-        # --------------------------------------------------------------
-        write_path = f"s3://{output_bucket}/{table_name}/data/"
-
+        # --------------------------------------------------------------------
+        # 4. Write DataFrame as PARQUET into Iceberg Warehouse
+        # --------------------------------------------------------------------
         wr.s3.to_parquet(
             df=df,
             path=write_path,
@@ -85,6 +86,7 @@ def handler(event, context):
         return {
             "status": "success",
             "records_loaded": len(df),
+            "warehouse_path": write_path,
             "message": "Dataframe converted and written successfully."
         }
 

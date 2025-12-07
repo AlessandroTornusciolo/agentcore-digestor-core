@@ -27,8 +27,8 @@ def handler(event, context):
         db_name = f"agentcore_digestor_db_{env}"
 
         # S3 dove sono già i Parquet scritti dalla lambda load_into_iceberg
-        bucket = f"agentcore-digestor-tables-{env}"
-        prefix = f"{table_name}/data/"
+        bucket = f"agentcore-digestor-iceberg-bronze-{env}"
+        prefix = f"warehouse/{table_name}/data/"
 
         # Nome tabella di staging
         staging = f"{table_name}_staging_{uuid.uuid4().hex[:6]}"
@@ -59,7 +59,7 @@ def handler(event, context):
         )
 
         # 2) CTAS per creare la Iceberg MANAGED (qui aggiungiamo is_external=false)
-        warehouse = f"s3://agentcore-digestor-athena-results-{env}/results/db/{table_name}/"
+        warehouse = f"s3://agentcore-digestor-iceberg-bronze-{env}/iceberg/{table_name}/"
 
         query = f"""
         CREATE TABLE {db_name}.{table_name}

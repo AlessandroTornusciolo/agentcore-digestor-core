@@ -6,24 +6,16 @@ lambda_client = boto3.client("lambda")
 
 
 @tool
-def load_into_iceberg(file_s3_path: str, table_name: str, schema: list) -> dict:
+def load_into_iceberg(file_s3_path: str, table_name: str, schema: list = None) -> dict:
     """
-    Tool per orchestrare il caricamento dei dati nella tabella Iceberg.
-    NON esegue il caricamento locale, ma invoca la Lambda dedicata.
-
-    Args:
-        file_s3_path: path S3 del file normalizzato da caricare
-        table_name: tabella iceberg di destinazione
-        schema: schema normalizzato proveniente da schema_normalizer
-
-    Returns:
-        Risultato della Lambda load_into_iceberg
+    Tool che inoltra il lavoro alla Lambda dockerizzata 'load_into_iceberg'.
+    Non esegue alcun parsing del file.
     """
 
     payload = {
         "file_s3_path": file_s3_path,
         "table_name": table_name,
-        "schema": schema   # può servire alle lambda future
+        "schema": schema  # non obbligatorio, ma utile per future estensioni
     }
 
     response = lambda_client.invoke(
