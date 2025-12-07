@@ -60,6 +60,39 @@ s3_buckets = {
     }
     EOF
   }
+
+  history = {
+    name              = "agentcore-digestor-archive-dev"
+    tags              = { Purpose = "archive-storage" }
+
+    enable_versioning = true
+    versioning_status = "Enabled"
+
+    enable_encryption = true
+    encryption_type   = "AES256"
+  }
+
+  manual_ingestion = {
+    name              = "agentcore-digestor-upload-raw-dev"
+    tags              = { Purpose = "user-manual-upload" }
+
+    enable_versioning = true
+    versioning_status = "Enabled"
+
+    enable_encryption = true
+    encryption_type   = "AES256"
+  }
+
+  iceberg = {
+    name              = "agentcore-digestor-iceberg-bronze-dev"
+    tags              = { Purpose = "iceberg-tables-storage" }
+
+    enable_versioning = true
+    versioning_status = "Enabled"
+
+    enable_encryption = true
+    encryption_type   = "AES256"
+  }
 }
 
 iam_roles = {
@@ -144,7 +177,13 @@ iam_roles = {
             actions   = ["s3:GetObject", "s3:ListBucket"]
             resources = [
               "arn:aws:s3:::agentcore-digestor-raw-dev",
-              "arn:aws:s3:::agentcore-digestor-raw-dev/*"
+              "arn:aws:s3:::agentcore-digestor-raw-dev/*",
+              "arn:aws:s3:::agentcore-digestor-archive-dev",
+              "arn:aws:s3:::agentcore-digestor-archive-dev/*",
+              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev",
+              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev/*",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev/*"
             ]
           }
         ]
@@ -181,7 +220,13 @@ iam_roles = {
             actions   = ["s3:GetObject", "s3:ListBucket"]
             resources = [
               "arn:aws:s3:::agentcore-digestor-raw-dev",
-              "arn:aws:s3:::agentcore-digestor-raw-dev/*"
+              "arn:aws:s3:::agentcore-digestor-raw-dev/*",
+              "arn:aws:s3:::agentcore-digestor-archive-dev",
+              "arn:aws:s3:::agentcore-digestor-archive-dev/*",
+              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev",
+              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev/*",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev/*"
             ]
           }
         ]
@@ -219,7 +264,13 @@ iam_roles = {
             actions   = ["s3:GetObject", "s3:ListBucket"]
             resources = [
               "arn:aws:s3:::agentcore-digestor-raw-dev",
-              "arn:aws:s3:::agentcore-digestor-raw-dev/*"
+              "arn:aws:s3:::agentcore-digestor-raw-dev/*",
+              "arn:aws:s3:::agentcore-digestor-archive-dev",
+              "arn:aws:s3:::agentcore-digestor-archive-dev/*",
+              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev",
+              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev/*",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev/*"
             ]
           }
         ]
@@ -233,7 +284,15 @@ iam_roles = {
             actions   = ["s3:PutObject", "s3:ListBucket"]
             resources = [
               "arn:aws:s3:::agentcore-digestor-tables-dev",
-              "arn:aws:s3:::agentcore-digestor-tables-dev/*"
+              "arn:aws:s3:::agentcore-digestor-tables-dev/*",
+              "arn:aws:s3:::agentcore-digestor-raw-dev",
+              "arn:aws:s3:::agentcore-digestor-raw-dev/*",
+              "arn:aws:s3:::agentcore-digestor-archive-dev",
+              "arn:aws:s3:::agentcore-digestor-archive-dev/*",
+              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev",
+              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev/*",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev/*"
             ]
           }
         ]
@@ -314,7 +373,15 @@ iam_roles = {
               "arn:aws:s3:::agentcore-digestor-tables-dev",
               "arn:aws:s3:::aws-athena-query-results-*",
               "arn:aws:s3:::agentcore-digestor-athena-results-dev/*",
-              "arn:aws:s3:::agentcore-digestor-athena-results-dev"              
+              "arn:aws:s3:::agentcore-digestor-athena-results-dev",         
+              "arn:aws:s3:::agentcore-digestor-raw-dev",
+              "arn:aws:s3:::agentcore-digestor-raw-dev/*",
+              "arn:aws:s3:::agentcore-digestor-archive-dev",
+              "arn:aws:s3:::agentcore-digestor-archive-dev/*",
+              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev",
+              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev/*",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev/*"
             ]
           }
         ]
@@ -339,7 +406,15 @@ iam_roles = {
             ]
             resources = [
               "arn:aws:s3:::agentcore-digestor-tables-dev",
-              "arn:aws:s3:::agentcore-digestor-tables-dev/*"
+              "arn:aws:s3:::agentcore-digestor-tables-dev/*",
+              "arn:aws:s3:::agentcore-digestor-raw-dev",
+              "arn:aws:s3:::agentcore-digestor-raw-dev/*",
+              "arn:aws:s3:::agentcore-digestor-archive-dev",
+              "arn:aws:s3:::agentcore-digestor-archive-dev/*",
+              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev",
+              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev/*",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev/*"
             ]
           }
         ]
