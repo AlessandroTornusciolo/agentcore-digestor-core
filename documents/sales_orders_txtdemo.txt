@@ -1,0 +1,7 @@
+id,name,amount,date
+1,Alice,10.5,2024-01-01
+2,Bob,,2024-01-02
+3,Charlie,9999,2024-01-03
+4,,20.1,
+5,Eve,not_a_number,2024-01-05
+6,Frank,15.2,not_a_date
