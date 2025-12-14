@@ -1,16 +1,15 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime
 from strands import tool
 import boto3
 import io
 
 s3 = boto3.client("s3")
 
+NORMALIZED_BUCKET = "agentcore-digestor-upload-raw-dev"
+NORMALIZED_PREFIX = "normalized"
 
-# ----------------------------------------------------
-# Helper: test conversion of a single value
-# ----------------------------------------------------
+
 def try_convert(value, dtype):
     try:
         if dtype == "int":
@@ -24,9 +23,6 @@ def try_convert(value, dtype):
         return None
 
 
-# ----------------------------------------------------
-# Infer best type using >50% majority rule
-# ----------------------------------------------------
 def infer_column_type(series: pd.Series):
     total = len(series)
     if total == 0:
@@ -35,7 +31,6 @@ def infer_column_type(series: pd.Series):
     counts = {"int": 0, "float": 0, "datetime": 0}
 
     for v in series:
-        # skip None / NaN
         if v is None or pd.isna(v):
             continue
 
@@ -46,100 +41,76 @@ def infer_column_type(series: pd.Series):
         if try_convert(v, "datetime") is not None:
             counts["datetime"] += 1
 
-    best_type = max(counts, key=lambda t: counts[t])
-
-    if counts[best_type] >= total * 0.5:
-        return best_type
-
-    return "string"
+    best = max(counts, key=lambda t: counts[t])
+    return best if counts[best] >= total * 0.5 else "string"
 
 
-# ----------------------------------------------------
-# Apply conversion according to inferred type
-# ----------------------------------------------------
-def convert_column(series: pd.Series, dtype: str, mode: str):
-    new_values = []
-    removed_rows = 0
-
-    for v in series:
-        if v is None or pd.isna(v):
-            new_values.append(None)
-            continue
-
-        converted = try_convert(v, dtype)
-        if converted is None:
-            if mode == "drop_invalid":
-                new_values.append("ROW_REMOVED")
-                removed_rows += 1
-            else:
-                new_values.append(None)
-        else:
-            new_values.append(converted)
-
-    return new_values, removed_rows
-
-
-# ----------------------------------------------------
-# Main Tool: schema_normalizer
-# ----------------------------------------------------
 @tool
 def schema_normalizer(file_s3_path: str, schema: dict, mode: str = "drop_invalid"):
     """
-    Normalizza i dati secondo majority inference (>50%) e converte i valori.
-    mode = drop_invalid | keep_nulls
+    Row-level normalization.
+    A row is valid ONLY if all columns are convertible.
     """
 
-    # --------------------------------------------------------
-    # Scarica file da S3
-    # --------------------------------------------------------
+    # Load CSV
     bucket = file_s3_path.replace("s3://", "").split("/")[0]
     key = "/".join(file_s3_path.replace("s3://", "").split("/")[1:])
-
-    obj = s3.get_object(Bucket=bucket, Key=key)
-    df = pd.read_csv(io.BytesIO(obj["Body"].read()))
+    df = pd.read_csv(io.BytesIO(s3.get_object(Bucket=bucket, Key=key)["Body"].read()))
 
     original_rows = len(df)
-    total_removed = 0
 
-    normalized_df = pd.DataFrame()
-
-    final_schema = {}
-
-    # --------------------------------------------------------
-    # Applica inferenza tipo e conversione per ogni colonna
-    # --------------------------------------------------------
+    # Infer schema
+    inferred_schema = {}
     for col in df.columns:
-        series = df[col].replace({np.nan: None})
-        series = series.replace("nan", None)
+        series = df[col].replace({np.nan: None}).replace("nan", None)
+        inferred_schema[col] = infer_column_type(series)
 
-        inferred_type = infer_column_type(series)
-        final_schema[col] = inferred_type
+    cleaned_rows = []
+    removed_rows = 0
 
-        converted_values, removed = convert_column(series, inferred_type, mode)
-        total_removed += removed
+    for _, row in df.iterrows():
+        new_row = {}
+        row_valid = True
 
-        normalized_df[col] = converted_values
+        for col, dtype in inferred_schema.items():
+            value = row[col]
 
-    # Rimuovi le righe marcate come ROW_REMOVED
-    if mode == "drop_invalid":
-        normalized_df = normalized_df[~normalized_df.eq("ROW_REMOVED").any(axis=1)]
+            # MISSING VALUE = INVALID ROW
+            if pd.isna(value) or value == "" or value == "nan":
+                row_valid = False
+                break
 
-    cleaned_rows = len(normalized_df)
+            converted = try_convert(value, dtype)
+            if converted is None:
+                row_valid = False
+                break
 
-    # --------------------------------------------------------
-    # Prepara risposta
-    # --------------------------------------------------------
-    preview = normalized_df.fillna("None").astype(str).head(5).to_dict(orient="records")
+            new_row[col] = converted
 
-    result = {
+        if row_valid:
+            cleaned_rows.append(new_row)
+        else:
+            removed_rows += 1
+
+    normalized_df = pd.DataFrame(cleaned_rows)
+
+    # Write normalized CSV
+    filename = file_s3_path.split("/")[-1].rsplit(".", 1)[0]
+    normalized_key = f"{NORMALIZED_PREFIX}/{filename}_normalized.csv"
+
+    s3.put_object(
+        Bucket=NORMALIZED_BUCKET,
+        Key=normalized_key,
+        Body=normalized_df.to_csv(index=False).encode("utf-8")
+    )
+
+    return {
         "status": "success",
-        "mode": mode,
-        "schema_normalized": final_schema,
+        "schema_normalized": inferred_schema,
         "rows_original": original_rows,
-        "rows_cleaned": cleaned_rows,
-        "rows_removed": original_rows - cleaned_rows,
+        "rows_cleaned": len(normalized_df),
+        "rows_removed": removed_rows,
+        "normalized_path": f"s3://{NORMALIZED_BUCKET}/{normalized_key}",
         "ready_for_load": True,
-        "sample_preview": preview
+        "sample_preview": normalized_df.head(5).to_dict(orient="records"),
     }
-
-    return result

@@ -106,18 +106,8 @@ of these formats (schema, validation, normalization, ingestion), you MUST:
    - `analyze_schema(file_s3_path = converted_path, file_format = converted_format)`
    - `validate_data`
    - `schema_normalizer`
-   - `load_into_iceberg`
-   - `create_iceberg_table`
 
 If `convert_semi_tabular` fails → clearly report the error and STOP the pipeline.
-
-Notes:
-- For formats already tabular (csv/tsv/ndjson/txt-delimited),
-  `convert_semi_tabular` may simply return the same path with status=success.
-- CURRENT LIMITATION: ingestion into Iceberg is officially supported for
-  CSV/TSV/TXT and Excel (via conversion to CSV).
-  JSON/NDJSON conversion can be used for analysis, but full ingestion from JSON
-  is not yet guaranteed. In that case, you must explain the limitation.
 
 ──────────────────────────────────────────────────────────────────────────────
 SECTION 3B — MANDATORY PARAMETERS FOR `analyze_schema`
@@ -126,13 +116,41 @@ SECTION 3B — MANDATORY PARAMETERS FOR `analyze_schema`
 When you call `analyze_schema` you MUST:
 
 - ALWAYS pass `file_s3_path` = the final tabular file to analyze
-  (original CSV/TSV/TXT OR the `converted_path` from `convert_semi_tabular`).
 - ALWAYS pass `file_format` = the exact tabular format of that file
-  (e.g. "csv", "tsv", "ndjson", "json_array", "txt"), typically the
-  `converted_format` from `convert_semi_tabular`.
 
 NEVER call `analyze_schema` without `file_format`.
-NEVER guess `file_format`; use what comes from `detect_file_type` / `convert_semi_tabular`.
+NEVER guess `file_format`.
+
+──────────────────────────────────────────────────────────────────────────────
+SECTION 3C — NORMALIZED DATA AS SINGLE SOURCE OF TRUTH (CRITICAL)
+──────────────────────────────────────────────────────────────────────────────
+
+When you call `schema_normalizer`:
+
+- It produces a cleaned and filtered dataset
+- It writes a CSV file to S3
+- It returns a `normalized_path`
+- It returns `schema_normalized` as a DICTIONARY
+
+From this point forward:
+
+1. YOU MUST use **ONLY `normalized_path`** as `file_s3_path` for:
+   - `load_into_iceberg`
+   - `create_iceberg_table`
+
+2. YOU MUST NOT use:
+   - the original file path
+   - the converted_path
+
+3. Before calling `load_into_iceberg` you MUST transform `schema_normalized`
+   into a LIST with the following structure:
+
+   [
+     {"name": "<column_name>", "type": "<column_type>"},
+     ...
+   ]
+
+The normalized file is the SINGLE SOURCE OF TRUTH for ingestion.
 
 ──────────────────────────────────────────────────────────────────────────────
 SECTION 4 — INGESTION PIPELINE (FOR SUPPORTED TABULAR FILES)
@@ -143,34 +161,24 @@ Supported for FULL ingestion into Iceberg:
 Directly tabular:
 - csv
 - tsv
-- txt (delimited, autodetected by the tools)
+- txt (delimited)
 
 Semi-tabular but convertible:
-- xlsx / xls → converted to CSV by `convert_semi_tabular`, then treated as CSV
+- xlsx / xls → converted to CSV
 
-When the user requests ingestion into a table (Iceberg) for one of these supported
-formats, and after `raw_ingest` (Section 2) and (if needed) `convert_semi_tabular`
-(Section 3), ALWAYS follow this exact order on the final ingestion path
-(original path for csv/tsv/txt OR `converted_path` for excel):
+When ingestion is requested, ALWAYS follow this exact order:
 
-1. `analyze_schema(file_s3_path, file_format)`
+1. `analyze_schema`
 2. `validate_data`
 3. `schema_normalizer`
-4. `load_into_iceberg`
+4. `load_into_iceberg(file_s3_path = normalized_path, schema = normalized_schema_list)`
 5. `create_iceberg_table`
 
 Rules:
 - NEVER skip steps.
+- NEVER load non-normalized data.
 - ALWAYS use only the normalized schema.
 - NEVER use Pandas dtypes (int64/object/etc.) for CTAS.
-- NEVER run `load_into_iceberg` or `create_iceberg_table` on a non-supported format.
-
-For JSON / NDJSON:
-- You MAY use `convert_semi_tabular` and the other tools for analysis/preview,
-  but if full Iceberg ingestion is not supported, you MUST:
-  - clearly explain that limitation,
-  - avoid calling `load_into_iceberg` / `create_iceberg_table` blindly,
-  - still perform `raw_ingest` when ingestion was requested.
 
 ──────────────────────────────────────────────────────────────────────────────
 SECTION 5 — NON-TABULAR FILES (NO INGESTION PIPELINE)
@@ -184,50 +192,26 @@ For non-tabular formats:
 
 You MUST:
 1. If ingestion/archiving is requested → call `raw_ingest`.
-2. Optionally provide a brief LLM-generated content description.
-3. DO NOT call:
-   - `analyze_schema`
-   - `validate_data`
-   - `schema_normalizer`
-   - `load_into_iceberg`
-   - `create_iceberg_table`
-
-Images or binary formats (eseguibili, media puramente binari, ecc.) →
-politely reject ingestion and suggest a structured export if needed.
+2. Optionally provide a brief content description.
+3. DO NOT call ingestion tools.
 
 ──────────────────────────────────────────────────────────────────────────────
 SECTION 6 — PARTIAL OPERATIONS
 ──────────────────────────────────────────────────────────────────────────────
 
-If the user asks only for:
-- “give me the schema”
-- “validate this file”
-- “normalize this file”
-- “summarize the contents”
-- “preview the structure of this file”
-- “store the raw file but don’t ingest it”
-
-Then:
-- Use ONLY the appropriate tools.
-- You MAY still need `detect_file_type` and (for semi-tabular formats)
-  `convert_semi_tabular` so that downstream tools receive a tabular input.
+If the user asks only for partial tasks:
+- Use ONLY the necessary tools.
 - DO NOT run the full ingestion pipeline unless explicitly asked.
 
 ──────────────────────────────────────────────────────────────────────────────
 SECTION 7 — GENERAL RULES
 ──────────────────────────────────────────────────────────────────────────────
 
-- NEVER invent schemas, table names, columns, or file formats.
+- NEVER invent schemas or table names.
 - NEVER call tools unnecessarily.
-- ALWAYS determine intent from the user message.
-- ALWAYS follow the ingestion pipeline EXACTLY when ingestion is requested and
-  the format is supported.
-- ALWAYS ask for domain/dataset when filename is ambiguous.
-- ALWAYS return clear reasoning and structured explanations.
-- When semi-tabular conversion is needed, ALWAYS use `converted_path` and
-  `converted_format` from `convert_semi_tabular` for all downstream tabular tools.
-- When calling `analyze_schema`, ALWAYS pass both `file_s3_path` and `file_format`.
-
+- ALWAYS respect user intent.
+- ALWAYS follow the pipeline exactly.
+- AFTER normalization, ALWAYS ingest using `normalized_path` only.
 
 """
 

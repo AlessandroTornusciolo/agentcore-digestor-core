@@ -4,6 +4,7 @@ import pandas as pd
 import io
 import csv
 from strands import tool
+import openpyxl
 
 s3 = boto3.client("s3")
 

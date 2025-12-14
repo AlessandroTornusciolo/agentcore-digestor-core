@@ -6,7 +6,7 @@ lambda_client = boto3.client("lambda")
 
 
 @tool
-def load_into_iceberg(file_s3_path: str, table_name: str, schema: list = None) -> dict:
+def load_into_iceberg(file_s3_path: str, table_name: str, schema: list) -> dict:
     """
     Tool che inoltra il lavoro alla Lambda dockerizzata 'load_into_iceberg'.
     Non esegue alcun parsing del file.

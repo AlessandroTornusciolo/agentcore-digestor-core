@@ -5,6 +5,7 @@ import io
 import re
 from datetime import datetime
 from strands import tool
+import openpyxl
 
 s3 = boto3.client("s3")
 
