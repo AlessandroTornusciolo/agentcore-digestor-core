@@ -96,160 +96,6 @@ s3_buckets = {
 }
 
 iam_roles = {
-  lambda_core = {
-    role_name       = "agentcore-digestor-role-lambda-core-dev"
-    assume_services = ["lambda.amazonaws.com"]
-
-    inline_policies = {
-      invoke_tools = {
-        policy_name = "agentcore-digestor-policy-invoke-tools-core-dev"
-        statements = [
-          {
-            effect  = "Allow"
-            actions = ["lambda:InvokeFunction"]
-            resources = ["*"]
-          }
-        ]
-      }
-
-      s3_access = {
-        policy_name = "agentcore-digestor-policy-s3-access-core-dev"
-        statements = [
-          {
-            effect  = "Allow"
-            actions = ["s3:GetObject", "s3:PutObject", "s3:ListBucket"]
-            resources = [
-              "arn:aws:s3:::agentcore-digestor-raw-dev",
-              "arn:aws:s3:::agentcore-digestor-raw-dev/*",
-              "arn:aws:s3:::agentcore-digestor-tables-dev",
-              "arn:aws:s3:::agentcore-digestor-tables-dev/*"
-            ]
-          }
-        ]
-      }
-
-      glue_access = {
-        policy_name = "agentcore-digestor-policy-glue-access-core-dev"
-        statements = [
-          {
-            effect = "Allow"
-            actions = [
-              "glue:GetTable",
-              "glue:GetTables",
-              "glue:CreateTable",
-              "glue:UpdateTable"
-            ]
-            resources = ["*"]
-          }
-        ]
-      }
-
-      logs_access = {
-        policy_name = "agentcore-digestor-policy-logs-core-dev"
-        statements = [
-          {
-            effect = "Allow"
-            actions = [
-              "logs:CreateLogGroup",
-              "logs:CreateLogStream",
-              "logs:PutLogEvents"
-            ]
-            resources = ["*"]
-          }
-        ]
-      }
-    }
-
-    tags = {
-      Purpose = "agentcore-lambda-core"
-    }
-  }
-  analyze_file_schema = {
-    role_name       = "agentcore-digestor-role-analyze-schema-dev"
-    assume_services = ["lambda.amazonaws.com"]
-
-    inline_policies = {
-      s3_read_raw = {
-        policy_name = "agentcore-digestor-policy-s3-read-raw-analyze-schema-dev"
-        statements = [
-          {
-            effect    = "Allow"
-            actions   = ["s3:GetObject", "s3:ListBucket"]
-            resources = [
-              "arn:aws:s3:::agentcore-digestor-raw-dev",
-              "arn:aws:s3:::agentcore-digestor-raw-dev/*",
-              "arn:aws:s3:::agentcore-digestor-archive-dev",
-              "arn:aws:s3:::agentcore-digestor-archive-dev/*",
-              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev",
-              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev/*",
-              "arn:aws:s3:::agentcore-digestor-upload-raw-dev",
-              "arn:aws:s3:::agentcore-digestor-upload-raw-dev/*"
-            ]
-          }
-        ]
-      }
-
-      logs = {
-        policy_name = "agentcore-digestor-policy-logs-analyze-schema-dev"
-        statements = [
-          {
-            effect    = "Allow"
-            actions   = [
-              "logs:CreateLogGroup",
-              "logs:CreateLogStream",
-              "logs:PutLogEvents"
-            ]
-            resources = ["*"]
-          }
-        ]
-      }
-    }
-
-    tags = { Purpose = "analyze-schema" }
-  }
-  validate_data = {
-    role_name       = "agentcore-digestor-role-validate-data-dev"
-    assume_services = ["lambda.amazonaws.com"]
-
-    inline_policies = {
-      s3_read_raw = {
-        policy_name = "agentcore-digestor-policy-s3-read-raw-validate-data-dev"
-        statements = [
-          {
-            effect    = "Allow"
-            actions   = ["s3:GetObject", "s3:ListBucket"]
-            resources = [
-              "arn:aws:s3:::agentcore-digestor-raw-dev",
-              "arn:aws:s3:::agentcore-digestor-raw-dev/*",
-              "arn:aws:s3:::agentcore-digestor-archive-dev",
-              "arn:aws:s3:::agentcore-digestor-archive-dev/*",
-              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev",
-              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev/*",
-              "arn:aws:s3:::agentcore-digestor-upload-raw-dev",
-              "arn:aws:s3:::agentcore-digestor-upload-raw-dev/*"
-            ]
-          }
-        ]
-      }
-
-      logs = {
-        policy_name = "agentcore-digestor-policy-logs-validate-data-dev"
-        statements = [
-          {
-            effect    = "Allow"
-            actions   = [
-              "logs:CreateLogGroup",
-              "logs:CreateLogStream",
-              "logs:PutLogEvents"
-            ]
-            resources = ["*"]
-          }
-        ]
-      }
-    }
-
-    tags = { Purpose = "validate-data" }
-  }
   load_into_iceberg = {
     role_name       = "agentcore-digestor-role-load-into-iceberg-dev"
     assume_services = ["lambda.amazonaws.com"]
@@ -479,6 +325,60 @@ iam_roles = {
       Purpose = "bedrock-agent"
     }
   }
+  detect_file_type = {
+    role_name       = "agentcore-digestor-role-detect-file-type-dev"
+    assume_services = ["lambda.amazonaws.com"]
+
+    inline_policies = {
+
+      s3_read_input = {
+        policy_name = "agentcore-digestor-policy-s3-read-input-detect-file-type-dev"
+        statements = [
+          {
+            effect  = "Allow"
+            actions = ["s3:GetObject", "s3:ListBucket"]
+            resources = [
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev/*"
+            ]
+          }
+        ]
+      }
+
+      logs = {
+        policy_name = "agentcore-digestor-policy-logs-detect-file-type-dev"
+        statements = [
+          {
+            effect = "Allow"
+            actions = [
+              "logs:CreateLogGroup",
+              "logs:CreateLogStream",
+              "logs:PutLogEvents"
+            ]
+            resources = ["*"]
+          }
+        ]
+      }
+
+      ecr_access = {
+        policy_name = "agentcore-digestor-policy-ecr-access-detect-file-type-dev"
+        statements = [
+          {
+            effect = "Allow"
+            actions = [
+              "ecr:GetDownloadUrlForLayer",
+              "ecr:BatchGetImage",
+              "ecr:BatchCheckLayerAvailability",
+              "ecr:GetAuthorizationToken"
+            ]
+            resources = ["*"]
+          }
+        ]
+      }
+    }
+
+    tags = { Purpose = "detect-file-type" }
+  }
 }
 
 ecr_repositories = {
@@ -496,51 +396,18 @@ ecr_repositories = {
       Purpose = "schema-normalizer" 
     }
   }
+  detect_file_type = {
+    component = "detect-file-type"
+    scan_on_push = true
+    tags = { 
+      Purpose = "detect-file-type" 
+    }
+  }
 }
 
 layers = {}
 
 lambdas = {
-
-  lambda_core = {
-    function_name = "agentcore-digestor-lambda-core-dev"
-    package_type  = "Zip"
-    handler       = "main.handler"
-    runtime       = "python3.12"
-    source_path   = "./dist/lambda_core.zip"
-    timeout       = 60
-
-    env_vars = { ENV = "dev" }
-    tags     = { Purpose = "agentcore-core-agent" }
-
-    layer_names = []
-  }
-  analyze_file_schema = {
-    function_name = "agentcore-digestor-lambda-analyze-schema-dev"
-    package_type  = "Zip"
-    handler       = "main.handler"
-    runtime       = "python3.12"
-    source_path   = "./dist/analyze_file_schema.zip"
-    timeout       = 30
-
-    env_vars = { ENV = "dev" }
-    tags     = { Purpose = "analyze-schema" }
-
-    layer_names = []
-  }
-  validate_data = {
-    function_name = "agentcore-digestor-lambda-validate-data-dev"
-    package_type  = "Zip"
-    handler       = "main.handler"
-    runtime       = "python3.12"
-    source_path   = "./dist/validate_data.zip"
-    timeout       = 30
-
-    env_vars = { ENV = "dev" }
-    tags     = { Purpose = "validate-data" }
-
-    layer_names = []
-  }
   load_into_iceberg = {
     function_name = "agentcore-digestor-lambda-load-into-iceberg-dev"
     package_type  = "Image"
@@ -590,5 +457,20 @@ lambdas = {
     handler     = null
     source_path = null
     layers      = null
+  }
+  detect_file_type = {
+    function_name = "agentcore-digestor-lambda-detect-file-type-dev"
+    package_type  = "Image"
+    image_uri     = "151441048511.dkr.ecr.eu-central-1.amazonaws.com/agentcore-digestor-ecr-detect-file-type-dev:latest"
+    timeout       = 60
+
+    env_vars = { ENV = "dev" }
+    tags     = { Purpose = "detect-file-type" }
+
+    # Zip fields unused for image-based lambdas
+    runtime       = null
+    handler       = null
+    source_path   = null
+    layer_names   = []
   }
 }

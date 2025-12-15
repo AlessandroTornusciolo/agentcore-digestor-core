@@ -56,12 +56,4 @@ module "agentcore_lambda_functions" {
   }
 }
 
-module "agentcore_api_gateway" {
-  source = "./modules/api_gateway"
-  env    = var.env
-
-  lambda_core_arn        = module.agentcore_lambda_functions.lambda_arns["lambda_core"]
-  lambda_core_invoke_arn = module.agentcore_lambda_functions.lambda_arns["lambda_core"]
-}
-
 
