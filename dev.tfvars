@@ -467,6 +467,60 @@ iam_roles = {
       Purpose = "convert-semi-tabular"
     }
   }
+  analyze_schema = {
+    role_name       = "agentcore-digestor-role-analyze-schema-dev"
+    assume_services = ["lambda.amazonaws.com"]
+
+    inline_policies = {
+
+      s3_read_input = {
+        policy_name = "agentcore-digestor-policy-s3-read-input-analyze-schema-dev"
+        statements = [
+          {
+            effect  = "Allow"
+            actions = ["s3:GetObject", "s3:ListBucket"]
+            resources = [
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev/*"
+            ]
+          }
+        ]
+      }
+
+      logs = {
+        policy_name = "agentcore-digestor-policy-logs-analyze-schema-dev"
+        statements = [
+          {
+            effect = "Allow"
+            actions = [
+              "logs:CreateLogGroup",
+              "logs:CreateLogStream",
+              "logs:PutLogEvents"
+            ]
+            resources = ["*"]
+          }
+        ]
+      }
+
+      ecr_access = {
+        policy_name = "agentcore-digestor-policy-ecr-access-analyze-schema-dev"
+        statements = [
+          {
+            effect = "Allow"
+            actions = [
+              "ecr:GetDownloadUrlForLayer",
+              "ecr:BatchGetImage",
+              "ecr:BatchCheckLayerAvailability",
+              "ecr:GetAuthorizationToken"
+            ]
+            resources = ["*"]
+          }
+        ]
+      }
+    }
+
+    tags = { Purpose = "analyze-schema" }
+  }
 }
 
 ecr_repositories = {
@@ -496,6 +550,13 @@ ecr_repositories = {
     scan_on_push = true
     tags = { 
       Purpose = "convert-semi-tabular" 
+    }
+  }
+  analyze_schema = {
+    component = "analyze-schema"
+    scan_on_push = true
+    tags = { 
+      Purpose = "analyze-schema" 
     }
   }
 }
@@ -576,6 +637,21 @@ lambdas = {
 
     env_vars = { ENV = "dev" }
     tags     = { Purpose = "convert-semi-tabular" }
+
+    # Zip fields unused for image-based lambdas
+    runtime       = null
+    handler       = null
+    source_path   = null
+    layer_names   = []
+  }
+  analyze_schema = {
+    function_name = "agentcore-digestor-lambda-analyze-schema-dev"
+    package_type  = "Image"
+    image_uri     = "151441048511.dkr.ecr.eu-central-1.amazonaws.com/agentcore-digestor-ecr-analyze-schema-dev:latest"
+    timeout       = 60
+
+    env_vars = { ENV = "dev" }
+    tags     = { Purpose = "analyze-schema" }
 
     # Zip fields unused for image-based lambdas
     runtime       = null
