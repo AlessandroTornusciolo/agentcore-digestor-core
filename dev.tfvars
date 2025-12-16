@@ -3,28 +3,6 @@ aws_region = "eu-central-1"
 env        = "dev"
 
 s3_buckets = {
-  raw = {
-    name              = "agentcore-digestor-raw-dev"
-    tags              = { Purpose = "raw-storage" }
-
-    enable_versioning = true
-    versioning_status = "Enabled"
-
-    enable_encryption = true
-    encryption_type   = "AES256"
-  }
-
-  tables = {
-    name              = "agentcore-digestor-tables-dev"
-    tags              = { Purpose = "iceberg-tables-storage" }
-
-    enable_versioning = true
-    versioning_status = "Enabled"
-
-    enable_encryption = true
-    encryption_type   = "AES256"
-  }
-
   athena_results = {
     name              = "agentcore-digestor-athena-results-dev"
     tags              = { Purpose = "athena-results-storage" }
