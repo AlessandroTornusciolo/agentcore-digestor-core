@@ -379,6 +379,94 @@ iam_roles = {
 
     tags = { Purpose = "detect-file-type" }
   }
+  convert_semi_tabular = {
+    role_name       = "agentcore-digestor-role-convert-semi-tabular-dev"
+    assume_services = ["lambda.amazonaws.com"]
+
+    inline_policies = {
+
+      # -------------------------------------------------
+      # Read input files (original uploads)
+      # -------------------------------------------------
+      s3_read_input = {
+        policy_name = "agentcore-digestor-policy-s3-read-input-convert-semi-tabular-dev"
+        statements = [
+          {
+            effect  = "Allow"
+            actions = [
+              "s3:GetObject",
+              "s3:ListBucket"
+            ]
+            resources = [
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev/*"
+            ]
+          }
+        ]
+      }
+
+      # -------------------------------------------------
+      # Write converted files
+      # -------------------------------------------------
+      s3_write_converted = {
+        policy_name = "agentcore-digestor-policy-s3-write-converted-convert-semi-tabular-dev"
+        statements = [
+          {
+            effect  = "Allow"
+            actions = [
+              "s3:PutObject",
+              "s3:ListBucket"
+            ]
+            resources = [
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev/converted/*"
+            ]
+          }
+        ]
+      }
+
+      # -------------------------------------------------
+      # CloudWatch Logs
+      # -------------------------------------------------
+      logs = {
+        policy_name = "agentcore-digestor-policy-logs-convert-semi-tabular-dev"
+        statements = [
+          {
+            effect = "Allow"
+            actions = [
+              "logs:CreateLogGroup",
+              "logs:CreateLogStream",
+              "logs:PutLogEvents"
+            ]
+            resources = ["*"]
+          }
+        ]
+      }
+
+      # -------------------------------------------------
+      # ECR access (Docker image pull)
+      # -------------------------------------------------
+      ecr_access = {
+        policy_name = "agentcore-digestor-policy-ecr-access-convert-semi-tabular-dev"
+        statements = [
+          {
+            effect = "Allow"
+            actions = [
+              "ecr:GetDownloadUrlForLayer",
+              "ecr:BatchGetImage",
+              "ecr:BatchCheckLayerAvailability",
+              "ecr:GetAuthorizationToken"
+            ]
+            resources = ["*"]
+          }
+        ]
+      }
+    }
+
+    tags = {
+      Purpose = "convert-semi-tabular"
+    }
+  }
 }
 
 ecr_repositories = {
@@ -401,6 +489,13 @@ ecr_repositories = {
     scan_on_push = true
     tags = { 
       Purpose = "detect-file-type" 
+    }
+  }
+  convert_semi_tabular = {
+    component = "convert-semi-tabular"
+    scan_on_push = true
+    tags = { 
+      Purpose = "convert-semi-tabular" 
     }
   }
 }
@@ -466,6 +561,21 @@ lambdas = {
 
     env_vars = { ENV = "dev" }
     tags     = { Purpose = "detect-file-type" }
+
+    # Zip fields unused for image-based lambdas
+    runtime       = null
+    handler       = null
+    source_path   = null
+    layer_names   = []
+  }
+  convert_semi_tabular = {
+    function_name = "agentcore-digestor-lambda-convert-semi-tabular-dev"
+    package_type  = "Image"
+    image_uri     = "151441048511.dkr.ecr.eu-central-1.amazonaws.com/agentcore-digestor-ecr-convert-semi-tabular-dev:latest"
+    timeout       = 60
+
+    env_vars = { ENV = "dev" }
+    tags     = { Purpose = "convert-semi-tabular" }
 
     # Zip fields unused for image-based lambdas
     runtime       = null
