@@ -1,239 +1,179 @@
-import os
-import json
+import pandas as pd
+import numpy as np
 import boto3
-import time
-from io import BytesIO
-
-import pyarrow as pa
-import pyarrow.parquet as pq
+import io
+import os
 
 s3 = boto3.client("s3")
 
+NORMALIZED_BUCKET = os.environ.get(
+    "NORMALIZED_BUCKET",
+    "agentcore-digestor-upload-raw-dev"
+)
+NORMALIZED_PREFIX = "normalized"
 
-# ---------------------------------------------
-# Helpers: type normalization & merge
-# ---------------------------------------------
-def arrow_type_to_glue(arrow_type: pa.DataType) -> str:
-    """
-    Converte un tipo PyArrow in un tipo compatibile con Glue/Athena/Iceberg.
-    """
-    if pa.types.is_int8(arrow_type) or pa.types.is_int16(arrow_type) or pa.types.is_int32(arrow_type):
-        return "int"
-    if pa.types.is_int64(arrow_type):
-        return "bigint"
 
-    if pa.types.is_float16(arrow_type) or pa.types.is_float32(arrow_type):
-        return "float"
-    if pa.types.is_float64(arrow_type):
-        return "double"
+# --------------------------------------------------
+# Conversion helpers
+# --------------------------------------------------
+def can_convert_int(v):
+    try:
+        i = int(v)
+        return float(v) == float(i)
+    except:
+        return False
 
-    if pa.types.is_boolean(arrow_type):
-        return "boolean"
 
-    if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type) or pa.types.is_binary(arrow_type):
+def can_convert_float(v):
+    try:
+        float(v)
+        return True
+    except:
+        return False
+
+
+def can_convert_datetime(v):
+    try:
+        pd.to_datetime(v)
+        return True
+    except:
+        return False
+
+
+def convert_value(v, dtype):
+    if dtype == "int":
+        return int(v)
+    if dtype == "float":
+        return float(v)
+    if dtype == "datetime":
+        return pd.to_datetime(v)
+    return v
+
+
+# --------------------------------------------------
+# Schema inference (STRICT & SAFE)
+# --------------------------------------------------
+def infer_column_type(series: pd.Series):
+    values = [v for v in series if v is not None and not pd.isna(v)]
+
+    if not values:
         return "string"
 
-    if pa.types.is_timestamp(arrow_type):
-        # Potresti specializzare su unità/timezone se ti serve
-        return "timestamp"
+    total = len(values)
 
-    if pa.types.is_date32(arrow_type) or pa.types.is_date64(arrow_type):
-        return "date"
+    # -----------------------------
+    # DATETIME (solo stringhe)
+    # -----------------------------
+    datetime_ok = [
+        v for v in values
+        if isinstance(v, str) and can_convert_datetime(v)
+    ]
+    if len(datetime_ok) / total >= 0.6:
+        return "datetime"
 
-    if pa.types.is_decimal(arrow_type):
-        # decimal128/256
-        return f"decimal({arrow_type.precision},{arrow_type.scale})"
+    # -----------------------------
+    # NUMERIC
+    # -----------------------------
+    float_ok = [v for v in values if can_convert_float(v)]
+    if len(float_ok) / total >= 0.6:
+        if all(can_convert_int(v) for v in float_ok):
+            return "int"
+        return "float"
 
-    if pa.types.is_list(arrow_type):
-        value_type = arrow_type.value_type
-        return f"array<{arrow_type_to_glue(value_type)}>"
-
-    if pa.types.is_struct(arrow_type):
-        fields = []
-        for field in arrow_type:
-            ftype = arrow_type_to_glue(field.type)
-            fields.append(f"{field.name}:{ftype}")
-        inner = ",".join(fields)
-        return f"struct<{inner}>"
-
-    if pa.types.is_map(arrow_type):
-        key_type = arrow_type_to_glue(arrow_type.key_type)
-        item_type = arrow_type_to_glue(arrow_type.item_type)
-        return f"map<{key_type},{item_type}>"
-
-    # Fallback generico
     return "string"
 
 
-def merge_glue_types(t1: str, t2: str) -> str:
-    """
-    Merge "furbo" di due tipi Glue/Athena in uno solo compatibile.
-    Regole semplici per ora; puoi espanderle in futuro.
-    """
-    if t1 == t2:
-        return t1
-
-    numeric = {"tinyint", "smallint", "int", "bigint", "float", "double", "decimal"}
-    if t1 in numeric and t2 in numeric:
-        # Se uno è double, vince double
-        if "double" in (t1, t2):
-            return "double"
-        if "float" in (t1, t2):
-            return "float"
-        if "bigint" in (t1, t2):
-            return "bigint"
-        return "int"
-
-    # Timestamp vs string → tieni timestamp
-    if (t1 == "timestamp" and t2 == "string") or (t2 == "timestamp" and t1 == "string"):
-        return "timestamp"
-
-    # Per tutto il resto: fallback string
-    return "string"
+# --------------------------------------------------
+# Make DataFrame JSON-safe (Lambda response)
+# --------------------------------------------------
+def json_safe_df(df: pd.DataFrame) -> pd.DataFrame:
+    safe = df.copy()
+    for col in safe.columns:
+        if pd.api.types.is_datetime64_any_dtype(safe[col]):
+            safe[col] = safe[col].astype(str)
+    return safe
 
 
-def merge_schemas(schema_list):
-    """
-    Receives a list of PyArrow schemas and merges them into a single
-    dict: { column_name: arrow_type }
-    """
-    merged = {}
-
-    for schema in schema_list:
-        for field in schema:
-            name = field.name
-            atype = field.type
-
-            if name not in merged:
-                merged[name] = atype
-            else:
-                # Se diverso, decidiamo un super-tipo al livello Glue
-                # mappando in Glue e poi "tornando" se serve
-                g1 = arrow_type_to_glue(merged[name])
-                g2 = arrow_type_to_glue(atype)
-                g_merged = merge_glue_types(g1, g2)
-
-                # Non tentiamo un "ritorno" a arrow_type, ci basta il tipo Glue.
-                # Manteniamo un dummy arrow_type coerente con g_merged? Non serve,
-                # ci interessa solo il tipo Glue finale.
-                # Quindi salviamo g_merged in un wrapper speciale:
-                merged[name] = g_merged
-
-    # A questo punto merged può contenere DataType o string (Glue-type).
-    # Normalizziamo tutto in Glue-type string.
-    glue_schema = {}
-    for name, value in merged.items():
-        if isinstance(value, pa.DataType):
-            glue_schema[name] = arrow_type_to_glue(value)
-        else:
-            glue_schema[name] = value
-
-    return glue_schema
-
-
-# ---------------------------------------------
-# S3 helpers
-# ---------------------------------------------
-def list_parquet_keys(bucket, prefix, max_files=10):
-    keys = []
-    continuation = None
-
-    while True:
-        kwargs = {"Bucket": bucket, "Prefix": prefix}
-        if continuation:
-            kwargs["ContinuationToken"] = continuation
-
-        resp = s3.list_objects_v2(**kwargs)
-        for obj in resp.get("Contents", []):
-            if obj["Key"].endswith(".parquet") or obj["Key"].endswith(".snappy.parquet"):
-                keys.append(obj["Key"])
-                if len(keys) >= max_files:
-                    return keys
-
-        if resp.get("IsTruncated"):
-            continuation = resp.get("NextContinuationToken")
-        else:
-            break
-
-    return keys
-
-
-def read_schema_from_parquet_s3(bucket, key):
-    obj = s3.get_object(Bucket=bucket, Key=key)
-    body = obj["Body"].read()
-    bio = BytesIO(body)
-
-    pf = pq.ParquetFile(bio)
-    return pf.schema_arrow
-
-
-# ---------------------------------------------
+# --------------------------------------------------
 # Lambda handler
-# ---------------------------------------------
+# --------------------------------------------------
 def handler(event, context):
-    """
-    Event atteso:
-    {
-      "table_name": "icg_demo_sample_dev",
-      "max_files": 10     # opzionale
-    }
-    """
     try:
-        env = os.environ.get("ENV", "dev")
+        file_s3_path = event["file_s3_path"]
 
-        table_name = event.get("table_name")
-        if not table_name:
-            return {
-                "status": "failed",
-                "error": "Missing 'table_name' in event"
-            }
+        bucket = file_s3_path.replace("s3://", "").split("/")[0]
+        key = "/".join(file_s3_path.replace("s3://", "").split("/")[1:])
 
-        max_files = event.get("max_files", 10)
+        obj = s3.get_object(Bucket=bucket, Key=key)
+        df = pd.read_csv(io.BytesIO(obj["Body"].read()))
 
-        bucket = f"agentcore-digestor-tables-{env}"
-        prefix = f"{table_name}/data/"
+        original_rows = len(df)
 
-        # 1. Lista dei Parquet da campionare
-        keys = list_parquet_keys(bucket, prefix, max_files=max_files)
-        if not keys:
-            return {
-                "status": "failed",
-                "error": f"No Parquet files found under s3://{bucket}/{prefix}"
-            }
+        # --------------------------------------------------
+        # Infer schema
+        # --------------------------------------------------
+        inferred_schema = {}
+        for col in df.columns:
+            series = df[col].replace({np.nan: None}).replace("nan", None)
+            inferred_schema[col] = infer_column_type(series)
 
-        # 2. Legge schema da un subset di file
-        schemas = []
-        for key in keys:
-            try:
-                sch = read_schema_from_parquet_s3(bucket, key)
-                schemas.append(sch)
-            except Exception as e:
-                # Accumula warning ma continua
-                # Potresti in futuro loggare su CloudWatch in modo più dettagliato
-                pass
+        # --------------------------------------------------
+        # Row-level normalization
+        # --------------------------------------------------
+        cleaned_rows = []
+        removed_rows = 0
 
-        if not schemas:
-            return {
-                "status": "failed",
-                "error": "Could not read schema from any sampled Parquet file"
-            }
+        for _, row in df.iterrows():
+            new_row = {}
+            valid = True
 
-        # 3. Merge + normalizzazione in tipi Glue
-        glue_schema = merge_schemas(schemas)
+            for col, dtype in inferred_schema.items():
+                value = row[col]
 
-        # 4. Risultato finale
-        normalized_schema = [
-            {"name": col_name, "type": col_type}
-            for col_name, col_type in glue_schema.items()
-        ]
+                # missing value = invalid row
+                if value is None or pd.isna(value) or value == "" or value == "nan":
+                    valid = False
+                    break
+
+                try:
+                    new_row[col] = convert_value(value, dtype)
+                except:
+                    valid = False
+                    break
+
+            if valid:
+                cleaned_rows.append(new_row)
+            else:
+                removed_rows += 1
+
+        normalized_df = pd.DataFrame(cleaned_rows)
+
+        # --------------------------------------------------
+        # Write normalized CSV (SOURCE OF TRUTH)
+        # --------------------------------------------------
+        filename = key.split("/")[-1].rsplit(".", 1)[0]
+        normalized_key = f"{NORMALIZED_PREFIX}/{filename}_normalized.csv"
+
+        s3.put_object(
+            Bucket=NORMALIZED_BUCKET,
+            Key=normalized_key,
+            Body=normalized_df.to_csv(index=False).encode("utf-8")
+        )
+
+        # --------------------------------------------------
+        # Prepare JSON-safe preview
+        # --------------------------------------------------
+        preview_df = json_safe_df(normalized_df)
 
         return {
             "status": "success",
-            "table_name": table_name,
-            "bucket": bucket,
-            "prefix": prefix,
-            "sampled_files": keys,
-            "normalized_schema": normalized_schema
+            "schema_normalized": inferred_schema,
+            "rows_original": original_rows,
+            "rows_cleaned": len(normalized_df),
+            "rows_removed": removed_rows,
+            "normalized_path": f"s3://{NORMALIZED_BUCKET}/{normalized_key}",
+            "ready_for_load": True,
+            "sample_preview": preview_df.head(5).to_dict(orient="records"),
         }
 
     except Exception as e:

@@ -152,6 +152,12 @@ From this point forward:
 
 The normalized file is the SINGLE SOURCE OF TRUTH for ingestion.
 
+If `schema_normalizer` fails:
+- YOU MUST stop the pipeline immediately
+- YOU MUST NOT call `load_into_iceberg`
+- YOU MUST NOT call `create_iceberg_table`
+- Report the normalization error clearly
+
 ──────────────────────────────────────────────────────────────────────────────
 SECTION 4 — INGESTION PIPELINE (FOR SUPPORTED TABULAR FILES)
 ──────────────────────────────────────────────────────────────────────────────

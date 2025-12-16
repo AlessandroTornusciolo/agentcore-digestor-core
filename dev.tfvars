@@ -241,27 +241,62 @@ iam_roles = {
     assume_services = ["lambda.amazonaws.com"]
 
     inline_policies = {
-      s3_read_tables = {
-        policy_name = "schema-normalizer-s3"
+
+      s3_read_input = {
+        policy_name = "agentcore-digestor-policy-s3-read-schema-normalizer-dev"
+        statements = [
+          {
+            effect  = "Allow"
+            actions = ["s3:GetObject", "s3:ListBucket"]
+            resources = [
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev/*"
+            ]
+          }
+        ]
+      }
+
+      s3_write_normalized = {
+        policy_name = "agentcore-digestor-policy-s3-write-normalized-schema-normalizer-dev"
+        statements = [
+          {
+            effect  = "Allow"
+            actions = ["s3:PutObject", "s3:ListBucket"]
+            resources = [
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev/*"
+            ]
+          }
+        ]
+      }
+
+      logs = {
+        policy_name = "agentcore-digestor-policy-logs-schema-normalizer-dev"
         statements = [
           {
             effect = "Allow"
             actions = [
-              "s3:GetObject",
-              "s3:ListBucket"
+              "logs:CreateLogGroup",
+              "logs:CreateLogStream",
+              "logs:PutLogEvents"
             ]
-            resources = [
-              "arn:aws:s3:::agentcore-digestor-tables-dev",
-              "arn:aws:s3:::agentcore-digestor-tables-dev/*",
-              "arn:aws:s3:::agentcore-digestor-raw-dev",
-              "arn:aws:s3:::agentcore-digestor-raw-dev/*",
-              "arn:aws:s3:::agentcore-digestor-archive-dev",
-              "arn:aws:s3:::agentcore-digestor-archive-dev/*",
-              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev",
-              "arn:aws:s3:::agentcore-digestor-iceberg-bronze-dev/*",
-              "arn:aws:s3:::agentcore-digestor-upload-raw-dev",
-              "arn:aws:s3:::agentcore-digestor-upload-raw-dev/*"
+            resources = ["*"]
+          }
+        ]
+      }
+
+      ecr_access = {
+        policy_name = "agentcore-digestor-policy-ecr-access-schema-normalizer-dev"
+        statements = [
+          {
+            effect = "Allow"
+            actions = [
+              "ecr:GetDownloadUrlForLayer",
+              "ecr:BatchGetImage",
+              "ecr:BatchCheckLayerAvailability",
+              "ecr:GetAuthorizationToken"
             ]
+            resources = ["*"]
           }
         ]
       }
