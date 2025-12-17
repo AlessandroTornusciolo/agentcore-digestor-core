@@ -534,6 +534,60 @@ iam_roles = {
 
     tags = { Purpose = "analyze-schema" }
   }
+  validate_data = {
+    role_name       = "agentcore-digestor-role-validate-data-dev"
+    assume_services = ["lambda.amazonaws.com"]
+
+    inline_policies = {
+
+      s3_read_input = {
+        policy_name = "agentcore-digestor-policy-s3-read-input-validate-data-dev"
+        statements = [
+          {
+            effect  = "Allow"
+            actions = ["s3:GetObject", "s3:ListBucket"]
+            resources = [
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev",
+              "arn:aws:s3:::agentcore-digestor-upload-raw-dev/*"
+            ]
+          }
+        ]
+      }
+
+      logs = {
+        policy_name = "agentcore-digestor-policy-logs-validate-data-dev"
+        statements = [
+          {
+            effect = "Allow"
+            actions = [
+              "logs:CreateLogGroup",
+              "logs:CreateLogStream",
+              "logs:PutLogEvents"
+            ]
+            resources = ["*"]
+          }
+        ]
+      }
+
+      ecr_access = {
+        policy_name = "agentcore-digestor-policy-ecr-access-validate-data-dev"
+        statements = [
+          {
+            effect = "Allow"
+            actions = [
+              "ecr:GetDownloadUrlForLayer",
+              "ecr:BatchGetImage",
+              "ecr:BatchCheckLayerAvailability",
+              "ecr:GetAuthorizationToken"
+            ]
+            resources = ["*"]
+          }
+        ]
+      }
+    }
+
+    tags = { Purpose = "validate-data" }
+  }
 }
 
 ecr_repositories = {
@@ -570,6 +624,13 @@ ecr_repositories = {
     scan_on_push = true
     tags = { 
       Purpose = "analyze-schema" 
+    }
+  }
+  validate_data = {
+    component = "validate-data"
+    scan_on_push = true
+    tags = { 
+      Purpose = "validate-data" 
     }
   }
 }
@@ -665,6 +726,21 @@ lambdas = {
 
     env_vars = { ENV = "dev" }
     tags     = { Purpose = "analyze-schema" }
+
+    # Zip fields unused for image-based lambdas
+    runtime       = null
+    handler       = null
+    source_path   = null
+    layer_names   = []
+  }
+  validate_data = {
+    function_name = "agentcore-digestor-lambda-validate-data-dev"
+    package_type  = "Image"
+    image_uri     = "151441048511.dkr.ecr.eu-central-1.amazonaws.com/agentcore-digestor-ecr-validate-data-dev:latest"
+    timeout       = 60
+
+    env_vars = { ENV = "dev" }
+    tags     = { Purpose = "validate-data" }
 
     # Zip fields unused for image-based lambdas
     runtime       = null
